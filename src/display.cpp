@@ -287,3 +287,17 @@ void displayShowResetCountdown(uint8_t seconds) {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString("Relache pour annuler", tft.width() / 2, 140);
 }
+
+void displayShowOtaStatus(const String &line1, const String &line2) {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextDatum(TC_DATUM);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+  tft.setTextSize(2);
+  tft.drawString(line1, tft.width() / 2, 40);
+
+  if (line2.length() > 0) {
+    tft.setTextSize(2);
+    tft.drawString(line2, tft.width() / 2, 80);
+  }
+}
