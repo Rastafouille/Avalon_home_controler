@@ -8,6 +8,16 @@
 #include "miner.h"
 #include <time.h>   // pour getLocalTime, configTime
 
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <Update.h>
+#include "version.h"  // si FW_VERSION n'est pas visible, mieux vaut le mettre dans un version.h
+const char* GITHUB_VERSION_URL =
+  "https://raw.githubusercontent.com/TON_USER/TON_REPO/main/firmware/version.txt";
+
+const char* GITHUB_FIRMWARE_BASE_URL =
+  "https://raw.githubusercontent.com/TON_USER/TON_REPO/main/firmware/";
+
 
 // Décalage UTC en heures (-12 .. +12), par défaut 1 (Europe/Paris)
 static int gUtcOffsetHours = 1;

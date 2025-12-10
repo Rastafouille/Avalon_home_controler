@@ -30,3 +30,6 @@ void displayBacklightOff();
 
 void displayShowResetCountdown(uint8_t seconds);
 
+void displayShowOtaStatus(const String &line1, const String &line2);
+
+
