@@ -51,7 +51,7 @@ void displayShowBoot() {
   // Affichage du logo KON8
   tft.pushImage(x, y, KON8_W, KON8_H, kon8_logo);
 
-  delay(3000); // afficher le logo 1.5 sec
+  delay(1000); // afficher le logo 1.5 sec
 }
 
 void displayShowAPInfo(IPAddress ip) {

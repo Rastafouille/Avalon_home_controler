@@ -251,15 +251,17 @@ static String htmlInfoPage() {
 </head>
 <body>
 
-  <h1>📟 TTGO Avalon Dashboard</h1>
+  <h1>📟 Avalon controler Dashboard</h1>
 
   <div class="section">
     <h2>📶 WiFi</h2>
 )rawliteral";
 
-  page += "<p><b>IP de la TTGO :</b> " + ip + "</p>";
+  page += "<p><b>IP :</b> " + ip + "</p>";
   page += "<p><b>SSID :</b> " + wifiSSID + "</p>";
   page += "<p><b>RSSI :</b> " + String(WiFi.RSSI()) + " dBm</p>";
+  page += "<p><b>Firmware :</b> v" FW_VERSION "</p>";
+
   page += "<a class=\"button\" href=\"/reconfig\">Reconfigurer le WiFi</a>";
   page += "</div>";
 
@@ -596,6 +598,146 @@ static void handleTimeSave() {
 }
 
 
+// =======================
+// OTA from GitHub
+// =======================
+static bool fetchRemoteFirmwareInfo(String &remoteVer, String &remoteFile) {
+  WiFiClientSecure client;
+  client.setInsecure(); // pour éviter la gestion des certificats
+
+  HTTPClient https;
+  if (!https.begin(client, GITHUB_VERSION_URL)) {
+    Serial.println("[OTA] Echec https.begin(version)");
+    return false;
+  }
+
+  int code = https.GET();
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("[OTA] HTTP version.txt code=%d\n", code);
+    https.end();
+    return false;
+  }
+
+  String body = https.getString();
+  https.end();
+
+  body.trim();
+  if (body.length() == 0) return false;
+
+  int nl = body.indexOf('\n');
+  if (nl < 0) {
+    // Une seule ligne -> version seulement
+    remoteVer = body;
+    remoteFile = "firmware-0-1.bin";  // fallback si deuxième ligne absente
+  } else {
+    remoteVer  = body.substring(0, nl);
+    remoteVer.trim();
+    remoteFile = body.substring(nl + 1);
+    remoteFile.trim();
+  }
+
+  Serial.println("[OTA] Version distante: " + remoteVer);
+  Serial.println("[OTA] Fichier distant : " + remoteFile);
+  return (remoteVer.length() > 0);
+}
+
+static bool otaFromUrl(const String &url) {
+  Serial.println("[OTA] Telechargement depuis: " + url);
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+
+  if (!https.begin(client, url)) {
+    Serial.println("[OTA] Echec https.begin(firmware)");
+    return false;
+  }
+
+  int httpCode = https.GET();
+  if (httpCode != HTTP_CODE_OK) {
+    Serial.printf("[OTA] HTTP code=%d\n", httpCode);
+    https.end();
+    return false;
+  }
+
+  int contentLength = https.getSize();
+  WiFiClient* stream = https.getStreamPtr();
+
+  Serial.printf("[OTA] Taille firmware: %d octets\n", contentLength);
+
+  if (!Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN)) {
+    Serial.println("[OTA] Echec Update.begin()");
+    https.end();
+    return false;
+  }
+
+  size_t written = Update.writeStream(*stream);
+  Serial.printf("[OTA] Ecrit %u octets\n", (unsigned)written);
+
+  if (contentLength > 0 && written != (size_t)contentLength) {
+    Serial.println("[OTA] Taille ecrite != taille attendue");
+    https.end();
+    return false;
+  }
+
+  if (!Update.end()) {
+    Serial.printf("[OTA] Erreur Update.end(): %s\n", Update.errorString());
+    https.end();
+    return false;
+  }
+
+  if (!Update.isFinished()) {
+    Serial.println("[OTA] Update pas termine correctement");
+    https.end();
+    return false;
+  }
+
+  Serial.println("[OTA] Mise a jour OK, reboot...");
+  https.end();
+  delay(500);
+  ESP.restart();
+
+  return true;  // en theorie on ne revient jamais ici
+}
+
+static void checkGithubUpdateAtBoot() {
+  Serial.println("[OTA] Verif mise a jour GitHub...");
+
+  String remoteVer, remoteFile;
+  if (!fetchRemoteFirmwareInfo(remoteVer, remoteFile)) {
+    Serial.println("[OTA] Impossible de lire version distante.");
+    return;
+  }
+
+  float local  = atof(FW_VERSION);
+  float remote = remoteVer.toFloat();
+
+  Serial.printf("[OTA] Version locale = %.2f, distante = %.2f\n", local, remote);
+
+  if (remote <= local + 0.0001f) {
+    Serial.println("[OTA] Firmware a jour.");
+    return;
+  }
+
+  // Affichage sur TFT
+  String line2 = "v" + String(FW_VERSION) + " -> v" + remoteVer;
+  displayShowOtaStatus("Mise a jour dispo", line2);
+  delay(2000);
+
+  displayShowOtaStatus("Telechargement...", "");
+  String url = String(GITHUB_FIRMWARE_BASE_URL) + remoteFile;
+  bool ok = otaFromUrl(url);
+
+  if (!ok) {
+    displayShowOtaStatus("Echec mise a jour", "");
+    delay(2000);
+  }
+}
+
+
+
+
+
 
 
 // =======================
@@ -756,138 +898,5 @@ void portalFactoryReset() {
   p.begin("timecfg", false);
   p.clear();
   p.end();
-}
-
-static bool fetchRemoteFirmwareInfo(String &remoteVer, String &remoteFile) {
-  WiFiClientSecure client;
-  client.setInsecure(); // pour éviter la gestion des certificats
-
-  HTTPClient https;
-  if (!https.begin(client, GITHUB_VERSION_URL)) {
-    Serial.println("[OTA] Echec https.begin(version)");
-    return false;
-  }
-
-  int code = https.GET();
-  if (code != HTTP_CODE_OK) {
-    Serial.printf("[OTA] HTTP version.txt code=%d\n", code);
-    https.end();
-    return false;
-  }
-
-  String body = https.getString();
-  https.end();
-
-  body.trim();
-  if (body.length() == 0) return false;
-
-  int nl = body.indexOf('\n');
-  if (nl < 0) {
-    // Une seule ligne -> version seulement
-    remoteVer = body;
-    remoteFile = "firmware-0-1.bin";  // fallback si deuxième ligne absente
-  } else {
-    remoteVer  = body.substring(0, nl);
-    remoteVer.trim();
-    remoteFile = body.substring(nl + 1);
-    remoteFile.trim();
-  }
-
-  Serial.println("[OTA] Version distante: " + remoteVer);
-  Serial.println("[OTA] Fichier distant : " + remoteFile);
-  return (remoteVer.length() > 0);
-}
-
-static bool otaFromUrl(const String &url) {
-  Serial.println("[OTA] Telechargement depuis: " + url);
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient https;
-
-  if (!https.begin(client, url)) {
-    Serial.println("[OTA] Echec https.begin(firmware)");
-    return false;
-  }
-
-  int httpCode = https.GET();
-  if (httpCode != HTTP_CODE_OK) {
-    Serial.printf("[OTA] HTTP code=%d\n", httpCode);
-    https.end();
-    return false;
-  }
-
-  int contentLength = https.getSize();
-  WiFiClient* stream = https.getStreamPtr();
-
-  Serial.printf("[OTA] Taille firmware: %d octets\n", contentLength);
-
-  if (!Update.begin(contentLength > 0 ? contentLength : UPDATE_SIZE_UNKNOWN)) {
-    Serial.println("[OTA] Echec Update.begin()");
-    https.end();
-    return false;
-  }
-
-  size_t written = Update.writeStream(*stream);
-  Serial.printf("[OTA] Ecrit %u octets\n", (unsigned)written);
-
-  if (contentLength > 0 && written != (size_t)contentLength) {
-    Serial.println("[OTA] Taille ecrite != taille attendue");
-    https.end();
-    return false;
-  }
-
-  if (!Update.end()) {
-    Serial.printf("[OTA] Erreur Update.end(): %s\n", Update.errorString());
-    https.end();
-    return false;
-  }
-
-  if (!Update.isFinished()) {
-    Serial.println("[OTA] Update pas termine correctement");
-    https.end();
-    return false;
-  }
-
-  Serial.println("[OTA] Mise a jour OK, reboot...");
-  https.end();
-  delay(500);
-  ESP.restart();
-
-  return true;  // en theorie on ne revient jamais ici
-}
-
-static void checkGithubUpdateAtBoot() {
-  Serial.println("[OTA] Verif mise a jour GitHub...");
-
-  String remoteVer, remoteFile;
-  if (!fetchRemoteFirmwareInfo(remoteVer, remoteFile)) {
-    Serial.println("[OTA] Impossible de lire version distante.");
-    return;
-  }
-
-  float local  = atof(FW_VERSION);
-  float remote = remoteVer.toFloat();
-
-  Serial.printf("[OTA] Version locale = %.2f, distante = %.2f\n", local, remote);
-
-  if (remote <= local + 0.0001f) {
-    Serial.println("[OTA] Firmware a jour.");
-    return;
-  }
-
-  // Affichage sur TFT
-  String line2 = "v" + String(FW_VERSION) + " -> v" + remoteVer;
-  displayShowOtaStatus("Mise a jour dispo", line2);
-  delay(2000);
-
-  displayShowOtaStatus("Telechargement...", "");
-  String url = String(GITHUB_FIRMWARE_BASE_URL) + remoteFile;
-  bool ok = otaFromUrl(url);
-
-  if (!ok) {
-    displayShowOtaStatus("Echec mise a jour", "");
-    delay(2000);
-  }
 }
 
