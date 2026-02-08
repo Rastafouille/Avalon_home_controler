@@ -7,6 +7,8 @@
 #include "display.h"
 #include "miner.h"
 #include <time.h>   // pour getLocalTime, configTime
+static bool ntpReady = false;
+
 
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -597,6 +599,32 @@ static void handleTimeSave() {
   }
 }
 
+bool waitForNtp(uint32_t timeoutMs){
+    ntpReady = false;
+
+    uint32_t start = millis();
+    Serial.print("waitForNtp timeout = ");
+    Serial.println(timeoutMs);
+    struct tm timeinfo;
+
+    while (1) {
+        if (getLocalTime(&timeinfo)) {
+            Serial.println("NTP sync OK");
+            ntpReady = true;
+            return true;
+        }
+        Serial.println("NTP... attente");
+        delay(500);
+    }
+
+    Serial.println("NTP échec");
+    return false;
+}
+bool portalIsNtpReady() {
+    return ntpReady;
+}
+
+
 
 // =======================
 // OTA from GitHub
@@ -827,6 +855,8 @@ static void startAPMode() {
 static void startNormalMode() {
   configMode = false;
   Serial.println("Mode normal (connecte au WiFi).");
+  waitForNtp();
+
 
   //displayShowWiFiOK(wifiSSID, WiFi.localIP());
 
@@ -846,6 +876,11 @@ static void startNormalMode() {
 
 void portalSetup() {
   minerInit();   // charge IP + mode du miner
+
+    // ---- Charge fuseau horaire ----
+  loadTimeConfig();          // (1) lit l'offset depuis NVS
+  applyTimeConfig();         // (2) applique immédiatement l'offset NTP
+
 
   // 1) On regarde si on doit FORCER le mode AP
   bool forceAP = false;
@@ -892,6 +927,7 @@ void portalFactoryReset() {
   // Efface WiFi
   p.begin("wifi", false);
   p.clear();
+  p.putInt("utcOffset", 1);  // remettre fuseau Paris après reset
   p.end();
 
   // Si un jour tu stockes le fuseau dans "timecfg", ça le nettoiera aussi
@@ -899,4 +935,3 @@ void portalFactoryReset() {
   p.clear();
   p.end();
 }
-

@@ -8,6 +8,33 @@
 #include "DHT.h"
 #include <Preferences.h>
 
+static uint32_t lastUpdate = 0;
+const uint32_t UPDATE_INTERVAL = 10000; // toutes les 2s
+// Données stockées pour affichage immédiat
+String cachedDate = "";
+String cachedTime = "";
+String cachedMinerIP = "";
+String cachedMinerMode = "";
+float cachedTHs = 0.0f;
+float cachedPower = 0.0f;
+float cachedTemp = NAN;
+float cachedHum = NAN;
+int cachedRSSI = 0;
+bool minerOk = false;
+
+
+void updateDateTimeStrings() {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        char buf[16];
+        strftime(buf, sizeof(buf), "%d/%m/%Y", &timeinfo);
+        cachedDate = buf;
+        strftime(buf, sizeof(buf), "%H:%M", &timeinfo);
+        cachedTime = buf;
+    }
+}
+
+
 
 
 // =======================
@@ -21,6 +48,11 @@ DHT dht(DHTPIN, DHTTYPE);
 // Mesures capteur (utilisées aussi dans portal.cpp)
 float gTempC = NAN;
 float gHum   = NAN;
+
+void updateDHT() {
+    if (!isnan(gTempC)) cachedTemp = gTempC;
+    if (!isnan(gHum))   cachedHum  = gHum;
+}
 // =======================
 // Boutons TTGO T-Display
 // =======================
@@ -114,49 +146,61 @@ static void showCurrentPage() {
   if (currentPage == 0) {
     // Page WiFi
     if (WiFi.isConnected()) {
-      displayShowWiFiPage(WiFi.SSID(), WiFi.localIP(), WiFi.RSSI());
+      displayShowWiFiPage(WiFi.SSID(), WiFi.localIP(), cachedRSSI);
     } else {
       displayShowWiFiError();
     }
   }
   else if (currentPage == 1) {
     // Page Miner
-    bool minerOk = minerUpdate();
-    MinerStatus st = minerGetStatus();
+    //bool minerOk = minerUpdate();
+    //MinerStatus st = minerGetStatus();
 
-    if (minerOk && st.ip.length() > 0) {
-      double mhs_av = st.sum.mhs_av.toDouble();
-      float ths = mhs_av / 1000000.0f;  // MH/s -> TH/s
-      float powerW = st.power.toFloat();
+    if (minerOk ){//&& st.ip.length() > 0) {
+     // double mhs_av = st.sum.mhs_av.toDouble();
+     // float ths = mhs_av / 1000000.0f;  // MH/s -> TH/s
+     // float powerW = st.power.toFloat();
 
-      String modeLabel;
-      if (!st.isActive) {
-        modeLabel = "Inactif";
-        ths    = 0.0f;
-        powerW = 0.0f;
-      } else {
-        modeLabel = formatModeLabel(st.workMode);
-      }
+     // String modeLabel;
+     // if (!st.isActive) {
+     //   modeLabel = "Inactif";
+     //   ths    = 0.0f;
+     //   powerW = 0.0f;
+     // } else {
+      //  modeLabel = formatModeLabel(st.workMode);
+      //}
 
-      displayShowMinerPage(st.ip, modeLabel, ths, powerW);
-    } else {
+      displayShowMinerPage(
+          cachedMinerIP,
+          formatModeLabel(cachedMinerMode),
+          cachedTHs,
+          cachedPower);    
+} else {
       displayShowMinerPage("N/A", "Inconnu", 0.0f, 0.0f);
     }
   }
   else if (currentPage == 2) {
     // Page Horloge
-    String d, t;
-    if (!getDateTimeStrings(d, t)) {
-      d = "Date N/A";
-      t = "Heure N/A";
+
+    if (!portalIsNtpReady()) {
+        // NTP pas encore synchronisé → on affiche un message propre
+        displayShowDateTimePage("TIme Sync...", "");
+        return;
     }
-    displayShowDateTimePage(d, t);
+
+   // String d, t;
+   // if (!getDateTimeStrings(d, t)) {
+    //  d = "Date N/A";
+    //  t = "Heure N/A";
+    //}
+    displayShowDateTimePage(cachedDate, cachedTime);
   }
   else {
     // Page Climat
-    displayShowEnvPage(gTempC, gHum);
+    displayShowEnvPage(cachedTemp, cachedHum);
   }
 }
+
 
 void setup() {
   Serial.begin(115200);
@@ -174,6 +218,7 @@ void setup() {
 
   // WiFi + serveur web + minerInit() + (config NTP si tu l'ajoutes dans portalSetup)
   portalSetup();
+  updateDateTimeStrings();
   
   lastInteractionMs = millis();
   currentPage = 2;
@@ -197,6 +242,30 @@ void loop() {
 
   lastNextState = nextState;
   lastPrevState = prevState;
+
+  if (now - lastUpdate > UPDATE_INTERVAL) {
+    lastUpdate = now;
+    // 🔥 Lire capteur DHT
+    updateDHT();   // fonction que je te fournis plus bas
+
+    // 🔥 Mise à jour miner
+    minerOk = minerUpdate();
+    MinerStatus st = minerGetStatus();
+
+    cachedMinerIP   = st.ip;
+    cachedMinerMode = st.workMode;
+
+    double mhs = st.sum.mhs_av.toDouble();
+    cachedTHs = mhs / 1000000.0;
+
+    if (st.power.length() > 0)
+        cachedPower = st.power.toFloat();
+
+    cachedRSSI = WiFi.RSSI();
+
+    // 🔥 Mise à jour heure/date
+    updateDateTimeStrings();  // fonction fournie plus bas
+}
 
   // === 1) GESTION RESET : les 2 boutons enfoncés ===
   if (bothPressed) {
@@ -257,7 +326,7 @@ void loop() {
     backlightOn = true;
     lastInteractionMs = now;
     displayShowBoot();   // logo 3s
-    delay(3000);
+    //delay(3000);
     currentPage = 2;
     showCurrentPage();
   } else {
@@ -283,7 +352,7 @@ void loop() {
   // === 3) Veille auto de l'écran ===
   if (backlightOn && (now - lastInteractionMs > SCREEN_TIMEOUT_MS)) {
     displayShowBoot();   // logo 3s
-    delay(3000);
+    //delay(3000);
 
     displayBacklightOff();
     backlightOn = false;

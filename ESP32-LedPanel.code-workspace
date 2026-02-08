@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "../GitHub/ESP32-LedPanel"
+		},
+		{
+			"name": "251024-222848-esp32dev",
+			"path": "../../PlatformIO/Projects/251024-222848-esp32dev"
+		},
+		{
+			"name": "Avalon Temp controler",
+			"path": "."
+		}
+	],
+	"settings": {}
+}
